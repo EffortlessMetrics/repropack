@@ -20,3 +20,8 @@ repropack-pack = { path = "../repropack-pack" }
 repropack-replay = { path = "../repropack-replay" }
 repropack-render = { path = "../repropack-render" }
 walkdir.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+serde_json.workspace = true
+sha2.workspace = true

@@ -1,3 +1,5 @@
+pub mod validate;
+
 use std::collections::BTreeMap;
 use std::fs;
 use std::io;
@@ -65,7 +67,7 @@ pub enum Severity {
     Error,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PacketManifest {
     pub schema_version: String,
     pub packet_id: String,
@@ -119,11 +121,14 @@ impl PacketManifest {
 
     pub fn read_from_path(path: &Path) -> io::Result<Self> {
         let bytes = fs::read(path)?;
-        serde_json::from_slice(&bytes).map_err(json_err)
+        let value: serde_json::Value = serde_json::from_slice(&bytes).map_err(json_err)?;
+        validate::validate_manifest(&value)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+        serde_json::from_value(value).map_err(json_err)
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CommandRecord {
     pub program: String,
     pub args: Vec<String>,
@@ -132,7 +137,7 @@ pub struct CommandRecord {
     pub cwd_relative_to_repo: Option<String>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ExecutionRecord {
     pub started_at: String,
     pub finished_at: String,
@@ -141,9 +146,13 @@ pub struct ExecutionRecord {
     pub signal: Option<i32>,
     pub success: bool,
     pub spawn_error: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stdout_sha256: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stderr_sha256: Option<String>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct GitState {
     pub commit_sha: Option<String>,
     pub ref_name: Option<String>,
@@ -155,9 +164,15 @@ pub struct GitState {
     pub bundle_path: Option<String>,
     pub diff_path: Option<String>,
     pub worktree_patch_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub git_pre: Option<GitSnapshot>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub git_post: Option<GitSnapshot>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capture_delta: Option<CaptureDelta>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct EnvironmentRecord {
     pub platform: PlatformFingerprint,
     pub allowed_vars: BTreeMap<String, String>,
@@ -165,14 +180,14 @@ pub struct EnvironmentRecord {
     pub tool_versions: BTreeMap<String, String>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PlatformFingerprint {
     pub family: String,
     pub os: String,
     pub arch: String,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct IndexedFile {
     pub original_path: String,
     pub restore_path: Option<String>,
@@ -181,7 +196,7 @@ pub struct IndexedFile {
     pub size_bytes: u64,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PacketFileRef {
     pub role: PacketFileRole,
     pub relative_path: String,
@@ -189,14 +204,14 @@ pub struct PacketFileRef {
     pub size_bytes: u64,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Omission {
     pub kind: String,
     pub subject: String,
     pub reason: String,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct DriftItem {
     pub subject: String,
     pub expected: Option<String>,
@@ -204,7 +219,7 @@ pub struct DriftItem {
     pub severity: Severity,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ReplayReceipt {
     pub schema_version: String,
     pub packet_id: String,
@@ -215,6 +230,10 @@ pub struct ReplayReceipt {
     pub recorded_exit_code: Option<i32>,
     pub observed_exit_code: Option<i32>,
     pub matched: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub matched_outputs: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub env_classification: Option<EnvClassification>,
     pub drift: Vec<DriftItem>,
     pub notes: Vec<String>,
     pub stdout_path: Option<String>,
@@ -222,7 +241,11 @@ pub struct ReplayReceipt {
 }
 
 impl ReplayReceipt {
-    pub fn new(packet_id: impl Into<String>, workdir: impl Into<String>, command_display: impl Into<String>) -> Self {
+    pub fn new(
+        packet_id: impl Into<String>,
+        workdir: impl Into<String>,
+        command_display: impl Into<String>,
+    ) -> Self {
         Self {
             schema_version: RECEIPT_SCHEMA_VERSION.to_string(),
             packet_id: packet_id.into(),
@@ -233,6 +256,8 @@ impl ReplayReceipt {
             recorded_exit_code: None,
             observed_exit_code: None,
             matched: false,
+            matched_outputs: None,
+            env_classification: None,
             drift: Vec::new(),
             notes: Vec::new(),
             stdout_path: None,
@@ -247,7 +272,62 @@ impl ReplayReceipt {
 
     pub fn read_from_path(path: &Path) -> io::Result<Self> {
         let bytes = fs::read(path)?;
-        serde_json::from_slice(&bytes).map_err(json_err)
+        let value: serde_json::Value = serde_json::from_slice(&bytes).map_err(json_err)?;
+        validate::validate_receipt(&value)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+        serde_json::from_value(value).map_err(json_err)
+    }
+}
+
+// ── v0.2 new types ──────────────────────────────────────────────────
+
+/// A point-in-time Git snapshot (used for both pre-run and post-run).
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct GitSnapshot {
+    pub commit_sha: Option<String>,
+    pub is_dirty: bool,
+    pub changed_paths: Vec<String>,
+    pub untracked_paths: Vec<String>,
+    pub worktree_patch_path: Option<String>,
+}
+
+/// The diff between pre-run and post-run Git state.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CaptureDelta {
+    pub newly_dirty_paths: Vec<String>,
+    pub newly_modified_paths: Vec<String>,
+    pub newly_untracked_paths: Vec<String>,
+}
+
+/// Environment variable classification in the replay receipt.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct EnvClassification {
+    pub restored: Vec<String>,
+    pub overridden: Vec<String>,
+    pub inherited: Vec<String>,
+}
+
+/// A single entry in the integrity envelope.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct IntegrityEntry {
+    pub relative_path: String,
+    pub sha256: String,
+    pub size_bytes: u64,
+}
+
+/// Size cap configuration for capture.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SizeCaps {
+    pub max_file_bytes: u64,
+    pub max_packet_bytes: u64,
+}
+
+impl Default for SizeCaps {
+    fn default() -> Self {
+        Self {
+            max_file_bytes: 50 * 1024 * 1024,    // 50 MiB
+            max_packet_bytes: 500 * 1024 * 1024, // 500 MiB
+        }
     }
 }
 
@@ -284,6 +364,8 @@ mod tests {
                 signal: None,
                 success: false,
                 spawn_error: None,
+                stdout_sha256: None,
+                stderr_sha256: None,
             },
             EnvironmentRecord {
                 platform: PlatformFingerprint {

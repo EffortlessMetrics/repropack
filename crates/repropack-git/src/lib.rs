@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{anyhow, Context, Result};
-use repropack_model::{GitState, Omission};
+use repropack_model::{CaptureDelta, GitSnapshot, GitState, Omission};
 
 #[derive(Clone, Copy, Debug)]
 pub enum BundleMode {
@@ -26,12 +26,16 @@ pub struct GitCaptureOutcome {
 }
 
 pub fn discover_repo_root(cwd: &Path) -> Result<PathBuf> {
-    let root = git_output(cwd, ["rev-parse", "--show-toplevel"])
-        .context("discovering repository root")?;
+    let root =
+        git_output(cwd, ["rev-parse", "--show-toplevel"]).context("discovering repository root")?;
     Ok(PathBuf::from(root))
 }
 
-pub fn capture_git_state(cwd: &Path, out_dir: &Path, options: &GitCaptureOptions) -> Result<GitCaptureOutcome> {
+pub fn capture_git_state(
+    cwd: &Path,
+    out_dir: &Path,
+    options: &GitCaptureOptions,
+) -> Result<GitCaptureOutcome> {
     let repo_root = discover_repo_root(cwd)?;
     fs::create_dir_all(out_dir).with_context(|| format!("creating {}", out_dir.display()))?;
 
@@ -41,8 +45,8 @@ pub fn capture_git_state(cwd: &Path, out_dir: &Path, options: &GitCaptureOptions
     let dirty_output = git_output(&repo_root, ["status", "--porcelain"]).unwrap_or_default();
     let is_dirty = !dirty_output.trim().is_empty();
 
-    let untracked_paths = git_lines(&repo_root, ["ls-files", "--others", "--exclude-standard"])
-        .unwrap_or_default();
+    let untracked_paths =
+        git_lines(&repo_root, ["ls-files", "--others", "--exclude-standard"]).unwrap_or_default();
 
     let changed_paths = if let (Some(base), Some(head)) = (&options.base, &options.head) {
         git_lines(
@@ -58,18 +62,12 @@ pub fn capture_git_state(cwd: &Path, out_dir: &Path, options: &GitCaptureOptions
         paths
     };
 
-    fs::write(
-        out_dir.join("changed-paths.txt"),
-        changed_paths.join("\n"),
-    )
-    .context("writing changed-paths.txt")?;
+    fs::write(out_dir.join("changed-paths.txt"), changed_paths.join("\n"))
+        .context("writing changed-paths.txt")?;
 
     let diff_path = if let (Some(base), Some(head)) = (&options.base, &options.head) {
-        let patch = git_bytes(
-            &repo_root,
-            ["diff", "--binary", &format!("{base}..{head}")],
-        )
-        .unwrap_or_default();
+        let patch = git_bytes(&repo_root, ["diff", "--binary", &format!("{base}..{head}")])
+            .unwrap_or_default();
         if patch.is_empty() {
             None
         } else {
@@ -142,6 +140,9 @@ pub fn capture_git_state(cwd: &Path, out_dir: &Path, options: &GitCaptureOptions
         bundle_path,
         diff_path,
         worktree_patch_path,
+        git_pre: None,
+        git_post: None,
+        capture_delta: None,
     };
 
     fs::write(
@@ -174,7 +175,113 @@ pub fn checkout_commit(repo_root: &Path, commit: &str) -> Result<()> {
 
 pub fn apply_patch(repo_root: &Path, patch: &Path) -> Result<()> {
     let patch_string = patch.to_string_lossy().to_string();
-    git_status(repo_root, ["apply", "--whitespace=nowarn", patch_string.as_str()])
+    git_status(
+        repo_root,
+        ["apply", "--whitespace=nowarn", patch_string.as_str()],
+    )
+}
+
+// ── v0.2: snapshot and delta ────────────────────────────────────────
+
+/// Outcome of a single git snapshot capture.
+#[derive(Clone, Debug)]
+pub struct GitSnapshotOutcome {
+    pub snapshot: GitSnapshot,
+    pub omissions: Vec<Omission>,
+}
+
+/// Capture a point-in-time Git snapshot (commit SHA, dirty status, changed
+/// paths, untracked paths, optional worktree patch).
+///
+/// `label` is typically `"pre"` or `"post"` and controls the patch filename.
+pub fn capture_git_snapshot(
+    repo_root: &Path,
+    out_dir: &Path,
+    label: &str,
+) -> Result<GitSnapshotOutcome> {
+    fs::create_dir_all(out_dir).with_context(|| format!("creating {}", out_dir.display()))?;
+
+    let commit_sha = git_output(repo_root, ["rev-parse", "HEAD"]).ok();
+
+    let porcelain = git_output(repo_root, ["status", "--porcelain"]).unwrap_or_default();
+    let is_dirty = !porcelain.trim().is_empty();
+
+    // Changed paths: tracked files with modifications relative to HEAD.
+    let changed_paths = {
+        let mut paths = git_lines(repo_root, ["diff", "--name-only", "HEAD"]).unwrap_or_default();
+        paths.sort();
+        paths.dedup();
+        paths
+    };
+
+    // Untracked paths: files not tracked by git.
+    let untracked_paths =
+        git_lines(repo_root, ["ls-files", "--others", "--exclude-standard"]).unwrap_or_default();
+
+    // Write worktree patch when dirty.
+    let worktree_patch_path = if is_dirty {
+        let patch_bytes = git_bytes(repo_root, ["diff", "--binary"]).unwrap_or_default();
+        if patch_bytes.is_empty() {
+            None
+        } else {
+            let filename = format!("{label}-worktree.patch");
+            let disk_path = out_dir.join(&filename);
+            fs::write(&disk_path, &patch_bytes)
+                .with_context(|| format!("writing {}", disk_path.display()))?;
+            Some(format!("git/{filename}"))
+        }
+    } else {
+        None
+    };
+
+    let snapshot = GitSnapshot {
+        commit_sha,
+        is_dirty,
+        changed_paths,
+        untracked_paths,
+        worktree_patch_path,
+    };
+
+    Ok(GitSnapshotOutcome {
+        snapshot,
+        omissions: Vec::new(),
+    })
+}
+
+/// Compute the delta between a pre-run and post-run snapshot.
+///
+/// - `newly_dirty_paths`    = post.changed_paths − pre.changed_paths
+/// - `newly_untracked_paths` = post.untracked_paths − pre.untracked_paths
+/// - `newly_modified_paths`  = intersection(pre.changed_paths, post.changed_paths)
+pub fn compute_capture_delta(pre: &GitSnapshot, post: &GitSnapshot) -> CaptureDelta {
+    use std::collections::BTreeSet;
+
+    let pre_changed: BTreeSet<&str> = pre.changed_paths.iter().map(String::as_str).collect();
+    let post_changed: BTreeSet<&str> = post.changed_paths.iter().map(String::as_str).collect();
+
+    let pre_untracked: BTreeSet<&str> = pre.untracked_paths.iter().map(String::as_str).collect();
+    let post_untracked: BTreeSet<&str> = post.untracked_paths.iter().map(String::as_str).collect();
+
+    let newly_dirty_paths: Vec<String> = post_changed
+        .difference(&pre_changed)
+        .map(|s| s.to_string())
+        .collect();
+
+    let newly_modified_paths: Vec<String> = post_changed
+        .intersection(&pre_changed)
+        .map(|s| s.to_string())
+        .collect();
+
+    let newly_untracked_paths: Vec<String> = post_untracked
+        .difference(&pre_untracked)
+        .map(|s| s.to_string())
+        .collect();
+
+    CaptureDelta {
+        newly_dirty_paths,
+        newly_modified_paths,
+        newly_untracked_paths,
+    }
 }
 
 fn git_output<const N: usize>(cwd: &Path, args: [&str; N]) -> Result<String> {

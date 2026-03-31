@@ -20,41 +20,137 @@
     "stderr_path"
   ],
   "properties": {
-    "schema_version": { "const": "repropack.receipt.v1" },
-    "packet_id": { "type": "string" },
-    "replayed_at": { "type": "string" },
-    "workdir": { "type": "string" },
-    "command_display": { "type": "string" },
+    "schema_version": {
+      "const": "repropack.receipt.v1"
+    },
+    "packet_id": {
+      "type": "string"
+    },
+    "replayed_at": {
+      "type": "string"
+    },
+    "workdir": {
+      "type": "string"
+    },
+    "command_display": {
+      "type": "string"
+    },
     "status": {
       "type": "string",
-      "enum": ["matched", "mismatched", "skipped", "blocked", "error"]
+      "enum": [
+        "matched",
+        "mismatched",
+        "skipped",
+        "blocked",
+        "error"
+      ]
     },
-    "recorded_exit_code": { "type": ["integer", "null"] },
-    "observed_exit_code": { "type": ["integer", "null"] },
-    "matched": { "type": "boolean" },
+    "recorded_exit_code": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "observed_exit_code": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "matched": {
+      "type": "boolean"
+    },
     "drift": {
       "type": "array",
-      "items": { "$ref": "#/$defs/driftItem" }
+      "items": {
+        "$ref": "#/$defs/driftItem"
+      }
     },
     "notes": {
       "type": "array",
-      "items": { "type": "string" }
+      "items": {
+        "type": "string"
+      }
     },
-    "stdout_path": { "type": ["string", "null"] },
-    "stderr_path": { "type": ["string", "null"] }
+    "stdout_path": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "stderr_path": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "env_classification": {
+      "$ref": "#/$defs/envClassification"
+    },
+    "matched_outputs": {
+      "type": "boolean"
+    }
   },
   "$defs": {
     "driftItem": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["subject", "severity"],
+      "required": [
+        "subject",
+        "severity"
+      ],
       "properties": {
-        "subject": { "type": "string" },
-        "expected": { "type": ["string", "null"] },
-        "observed": { "type": ["string", "null"] },
+        "subject": {
+          "type": "string"
+        },
+        "expected": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "observed": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "severity": {
           "type": "string",
-          "enum": ["info", "warning", "error"]
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ]
+        }
+      }
+    },
+    "envClassification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "restored",
+        "overridden",
+        "inherited"
+      ],
+      "properties": {
+        "restored": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "overridden": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "inherited": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       }
     }

@@ -21,69 +21,136 @@
     "notes"
   ],
   "properties": {
-    "schema_version": { "const": "repropack.manifest.v1" },
-    "packet_id": { "type": "string" },
-    "packet_name": { "type": ["string", "null"] },
-    "created_at": { "type": "string" },
-    "capture_level": { "$ref": "#/$defs/captureLevel" },
-    "replay_fidelity": { "$ref": "#/$defs/replayFidelity" },
-    "replay_policy": { "$ref": "#/$defs/replayPolicy" },
-    "command": { "$ref": "#/$defs/command" },
-    "execution": { "$ref": "#/$defs/execution" },
-    "git": {
-      "anyOf": [
-        { "$ref": "#/$defs/gitState" },
-        { "type": "null" }
+    "schema_version": {
+      "const": "repropack.manifest.v1"
+    },
+    "packet_id": {
+      "type": "string"
+    },
+    "packet_name": {
+      "type": [
+        "string",
+        "null"
       ]
     },
-    "environment": { "$ref": "#/$defs/environment" },
+    "created_at": {
+      "type": "string"
+    },
+    "capture_level": {
+      "$ref": "#/$defs/captureLevel"
+    },
+    "replay_fidelity": {
+      "$ref": "#/$defs/replayFidelity"
+    },
+    "replay_policy": {
+      "$ref": "#/$defs/replayPolicy"
+    },
+    "command": {
+      "$ref": "#/$defs/command"
+    },
+    "execution": {
+      "$ref": "#/$defs/execution"
+    },
+    "git": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/gitState"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "environment": {
+      "$ref": "#/$defs/environment"
+    },
     "inputs": {
       "type": "array",
-      "items": { "$ref": "#/$defs/indexedFile" }
+      "items": {
+        "$ref": "#/$defs/indexedFile"
+      }
     },
     "outputs": {
       "type": "array",
-      "items": { "$ref": "#/$defs/indexedFile" }
+      "items": {
+        "$ref": "#/$defs/indexedFile"
+      }
     },
     "packet_files": {
       "type": "array",
-      "items": { "$ref": "#/$defs/packetFile" }
+      "items": {
+        "$ref": "#/$defs/packetFile"
+      }
     },
     "omissions": {
       "type": "array",
-      "items": { "$ref": "#/$defs/omission" }
+      "items": {
+        "$ref": "#/$defs/omission"
+      }
     },
     "notes": {
       "type": "array",
-      "items": { "type": "string" }
+      "items": {
+        "type": "string"
+      }
     }
   },
   "$defs": {
     "captureLevel": {
       "type": "string",
-      "enum": ["metadata", "repo", "inputs"]
+      "enum": [
+        "metadata",
+        "repo",
+        "inputs"
+      ]
     },
     "replayFidelity": {
       "type": "string",
-      "enum": ["exact", "approximate", "inspect_only"]
+      "enum": [
+        "exact",
+        "approximate",
+        "inspect_only"
+      ]
     },
     "replayPolicy": {
       "type": "string",
-      "enum": ["safe", "confirm", "disabled"]
+      "enum": [
+        "safe",
+        "confirm",
+        "disabled"
+      ]
     },
     "command": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["program", "args", "display", "cwd"],
+      "required": [
+        "program",
+        "args",
+        "display",
+        "cwd"
+      ],
       "properties": {
-        "program": { "type": "string" },
+        "program": {
+          "type": "string"
+        },
         "args": {
           "type": "array",
-          "items": { "type": "string" }
+          "items": {
+            "type": "string"
+          }
         },
-        "display": { "type": "string" },
-        "cwd": { "type": "string" },
-        "cwd_relative_to_repo": { "type": ["string", "null"] }
+        "display": {
+          "type": "string"
+        },
+        "cwd": {
+          "type": "string"
+        },
+        "cwd_relative_to_repo": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
       }
     },
     "execution": {
@@ -96,13 +163,43 @@
         "success"
       ],
       "properties": {
-        "started_at": { "type": "string" },
-        "finished_at": { "type": "string" },
-        "duration_ms": { "type": "integer", "minimum": 0 },
-        "exit_code": { "type": ["integer", "null"] },
-        "signal": { "type": ["integer", "null"] },
-        "success": { "type": "boolean" },
-        "spawn_error": { "type": ["string", "null"] }
+        "started_at": {
+          "type": "string"
+        },
+        "finished_at": {
+          "type": "string"
+        },
+        "duration_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "exit_code": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "signal": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "success": {
+          "type": "boolean"
+        },
+        "spawn_error": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "stdout_sha256": {
+          "type": "string"
+        },
+        "stderr_sha256": {
+          "type": "string"
+        }
       }
     },
     "gitState": {
@@ -121,88 +218,278 @@
         "worktree_patch_path"
       ],
       "properties": {
-        "commit_sha": { "type": ["string", "null"] },
-        "ref_name": { "type": ["string", "null"] },
-        "base": { "type": ["string", "null"] },
-        "head": { "type": ["string", "null"] },
-        "is_dirty": { "type": "boolean" },
+        "commit_sha": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "ref_name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "base": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "head": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "is_dirty": {
+          "type": "boolean"
+        },
         "changed_paths": {
           "type": "array",
-          "items": { "type": "string" }
+          "items": {
+            "type": "string"
+          }
         },
         "untracked_paths": {
           "type": "array",
-          "items": { "type": "string" }
+          "items": {
+            "type": "string"
+          }
         },
-        "bundle_path": { "type": ["string", "null"] },
-        "diff_path": { "type": ["string", "null"] },
-        "worktree_patch_path": { "type": ["string", "null"] }
+        "bundle_path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "diff_path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "worktree_patch_path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "git_pre": {
+          "$ref": "#/$defs/gitSnapshot"
+        },
+        "git_post": {
+          "$ref": "#/$defs/gitSnapshot"
+        },
+        "capture_delta": {
+          "$ref": "#/$defs/captureDelta"
+        }
+      }
+    },
+    "gitSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "commit_sha",
+        "is_dirty",
+        "changed_paths",
+        "untracked_paths"
+      ],
+      "properties": {
+        "commit_sha": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "is_dirty": {
+          "type": "boolean"
+        },
+        "changed_paths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "untracked_paths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "worktree_patch_path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "captureDelta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "newly_dirty_paths",
+        "newly_modified_paths",
+        "newly_untracked_paths"
+      ],
+      "properties": {
+        "newly_dirty_paths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "newly_modified_paths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "newly_untracked_paths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
       }
     },
     "environment": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["platform", "allowed_vars", "redacted_keys", "tool_versions"],
+      "required": [
+        "platform",
+        "allowed_vars",
+        "redacted_keys",
+        "tool_versions"
+      ],
       "properties": {
-        "platform": { "$ref": "#/$defs/platform" },
+        "platform": {
+          "$ref": "#/$defs/platform"
+        },
         "allowed_vars": {
           "type": "object",
-          "additionalProperties": { "type": "string" }
+          "additionalProperties": {
+            "type": "string"
+          }
         },
         "redacted_keys": {
           "type": "array",
-          "items": { "type": "string" }
+          "items": {
+            "type": "string"
+          }
         },
         "tool_versions": {
           "type": "object",
-          "additionalProperties": { "type": "string" }
+          "additionalProperties": {
+            "type": "string"
+          }
         }
       }
     },
     "platform": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["family", "os", "arch"],
+      "required": [
+        "family",
+        "os",
+        "arch"
+      ],
       "properties": {
-        "family": { "type": "string" },
-        "os": { "type": "string" },
-        "arch": { "type": "string" }
+        "family": {
+          "type": "string"
+        },
+        "os": {
+          "type": "string"
+        },
+        "arch": {
+          "type": "string"
+        }
       }
     },
     "indexedFile": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["original_path", "packet_path", "sha256", "size_bytes"],
+      "required": [
+        "original_path",
+        "packet_path",
+        "sha256",
+        "size_bytes"
+      ],
       "properties": {
-        "original_path": { "type": "string" },
-        "restore_path": { "type": ["string", "null"] },
-        "packet_path": { "type": "string" },
-        "sha256": { "type": "string" },
-        "size_bytes": { "type": "integer", "minimum": 0 }
+        "original_path": {
+          "type": "string"
+        },
+        "restore_path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "packet_path": {
+          "type": "string"
+        },
+        "sha256": {
+          "type": "string"
+        },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 0
+        }
       }
     },
     "packetFile": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["role", "relative_path", "sha256", "size_bytes"],
+      "required": [
+        "role",
+        "relative_path",
+        "sha256",
+        "size_bytes"
+      ],
       "properties": {
         "role": {
           "type": "string",
-          "enum": ["metadata", "git", "execution", "environment", "input", "output", "summary"]
+          "enum": [
+            "metadata",
+            "git",
+            "execution",
+            "environment",
+            "input",
+            "output",
+            "summary"
+          ]
         },
-        "relative_path": { "type": "string" },
-        "sha256": { "type": "string" },
-        "size_bytes": { "type": "integer", "minimum": 0 }
+        "relative_path": {
+          "type": "string"
+        },
+        "sha256": {
+          "type": "string"
+        },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 0
+        }
       }
     },
     "omission": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "subject", "reason"],
+      "required": [
+        "kind",
+        "subject",
+        "reason"
+      ],
       "properties": {
-        "kind": { "type": "string" },
-        "subject": { "type": "string" },
-        "reason": { "type": "string" }
+        "kind": {
+          "type": "string"
+        },
+        "subject": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        }
       }
     }
   }

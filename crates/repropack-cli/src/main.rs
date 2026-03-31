@@ -6,13 +6,17 @@ use anyhow::{Context, Result};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use repropack_capture::{capture, CaptureOptions, PacketFormat};
 use repropack_git::BundleMode;
-use repropack_model::ReplayPolicy;
+use repropack_model::{ReplayPolicy, SizeCaps};
 use repropack_pack::{materialize, unpack_rpk};
-use repropack_replay::{replay, ReplayOptions};
 use repropack_render::render_manifest_markdown;
+use repropack_replay::{replay, ReplayOptions};
 
 #[derive(Parser)]
-#[command(name = "repropack", version, about = "Commit-aware failure packet generator")]
+#[command(
+    name = "repropack",
+    version,
+    about = "Commit-aware failure packet generator"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -51,6 +55,10 @@ struct CaptureArgs {
     out: Option<PathBuf>,
     #[arg(long = "policy", value_enum, default_value = "safe")]
     policy: ReplayPolicyArg,
+    #[arg(long, default_value = "52428800")]
+    max_file_size: u64,
+    #[arg(long, default_value = "524288000")]
+    max_packet_size: u64,
     #[arg(last = true, required = true)]
     command: Vec<String>,
 }
@@ -75,6 +83,8 @@ struct ReplayArgs {
     no_run: bool,
     #[arg(long)]
     force: bool,
+    #[arg(long)]
+    inherit_env: bool,
 }
 
 #[derive(Args)]
@@ -169,6 +179,10 @@ fn run() -> Result<i32> {
                     ReplayPolicyArg::Confirm => ReplayPolicy::Confirm,
                     ReplayPolicyArg::Disabled => ReplayPolicy::Disabled,
                 },
+                size_caps: SizeCaps {
+                    max_file_bytes: args.max_file_size,
+                    max_packet_bytes: args.max_packet_size,
+                },
             };
 
             let result = capture(&args.command, &options)?;
@@ -178,8 +192,9 @@ fn run() -> Result<i32> {
         Commands::Inspect(args) => {
             let materialized = materialize(&args.packet)
                 .with_context(|| format!("materializing {}", args.packet.display()))?;
-            let manifest = repropack_model::PacketManifest::read_from_path(&materialized.manifest_path())
-                .context("reading manifest")?;
+            let manifest =
+                repropack_model::PacketManifest::read_from_path(&materialized.manifest_path())
+                    .context("reading manifest")?;
 
             if args.json {
                 println!("{}", serde_json::to_string_pretty(&manifest)?);
@@ -205,6 +220,7 @@ fn run() -> Result<i32> {
                     set_env,
                     no_run: args.no_run,
                     force: args.force,
+                    inherit_env: args.inherit_env,
                 },
             )?;
 
@@ -224,7 +240,8 @@ fn run() -> Result<i32> {
                         fs::create_dir_all(parent)
                             .with_context(|| format!("creating {}", parent.display()))?;
                     }
-                    fs::write(&path, yaml).with_context(|| format!("writing {}", path.display()))?;
+                    fs::write(&path, yaml)
+                        .with_context(|| format!("writing {}", path.display()))?;
                     println!("{}", path.display());
                 } else {
                     print!("{yaml}");
@@ -240,7 +257,9 @@ fn parse_set_env(entries: &[String]) -> Result<BTreeMap<String, String>> {
 
     for entry in entries {
         let Some((key, value)) = entry.split_once('=') else {
-            return Err(anyhow::anyhow!("expected KEY=VALUE for --set-env, got `{entry}`"));
+            return Err(anyhow::anyhow!(
+                "expected KEY=VALUE for --set-env, got `{entry}`"
+            ));
         };
         map.insert(key.to_string(), value.to_string());
     }
@@ -250,7 +269,10 @@ fn parse_set_env(entries: &[String]) -> Result<BTreeMap<String, String>> {
 
 fn print_tree(root: &Path) -> Result<()> {
     let mut paths = Vec::new();
-    for entry in walkdir::WalkDir::new(root).into_iter().filter_map(|entry| entry.ok()) {
+    for entry in walkdir::WalkDir::new(root)
+        .into_iter()
+        .filter_map(|entry| entry.ok())
+    {
         let relative = entry.path().strip_prefix(root).unwrap();
         if relative.as_os_str().is_empty() {
             continue;

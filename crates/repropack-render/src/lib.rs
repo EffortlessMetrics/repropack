@@ -1,8 +1,6 @@
 use std::fmt::Write;
 
-use repropack_model::{
-    Omission, PacketManifest, ReplayReceipt, ReplayStatus,
-};
+use repropack_model::{Omission, PacketManifest, ReplayReceipt, ReplayStatus};
 
 pub fn render_manifest_markdown(manifest: &PacketManifest) -> String {
     let mut out = String::new();
@@ -14,9 +12,24 @@ pub fn render_manifest_markdown(manifest: &PacketManifest) -> String {
         writeln!(&mut out, "- Name: `{}`", name).unwrap();
     }
     writeln!(&mut out, "- Created: `{}`", manifest.created_at).unwrap();
-    writeln!(&mut out, "- Capture level: `{}`", display_capture_level(manifest)).unwrap();
-    writeln!(&mut out, "- Replay fidelity: `{}`", display_replay_fidelity(manifest)).unwrap();
-    writeln!(&mut out, "- Replay policy: `{}`", display_replay_policy(manifest)).unwrap();
+    writeln!(
+        &mut out,
+        "- Capture level: `{}`",
+        display_capture_level(manifest)
+    )
+    .unwrap();
+    writeln!(
+        &mut out,
+        "- Replay fidelity: `{}`",
+        display_replay_fidelity(manifest)
+    )
+    .unwrap();
+    writeln!(
+        &mut out,
+        "- Replay policy: `{}`",
+        display_replay_policy(manifest)
+    )
+    .unwrap();
     writeln!(&mut out).unwrap();
 
     writeln!(&mut out, "## Command").unwrap();
@@ -34,9 +47,24 @@ pub fn render_manifest_markdown(manifest: &PacketManifest) -> String {
     writeln!(&mut out, "## Execution").unwrap();
     writeln!(&mut out).unwrap();
     writeln!(&mut out, "- success: `{}`", manifest.execution.success).unwrap();
-    writeln!(&mut out, "- exit code: `{}`", format_option_i32(manifest.execution.exit_code)).unwrap();
-    writeln!(&mut out, "- signal: `{}`", format_option_i32(manifest.execution.signal)).unwrap();
-    writeln!(&mut out, "- duration ms: `{}`", manifest.execution.duration_ms).unwrap();
+    writeln!(
+        &mut out,
+        "- exit code: `{}`",
+        format_option_i32(manifest.execution.exit_code)
+    )
+    .unwrap();
+    writeln!(
+        &mut out,
+        "- signal: `{}`",
+        format_option_i32(manifest.execution.signal)
+    )
+    .unwrap();
+    writeln!(
+        &mut out,
+        "- duration ms: `{}`",
+        manifest.execution.duration_ms
+    )
+    .unwrap();
     writeln!(&mut out, "- started: `{}`", manifest.execution.started_at).unwrap();
     writeln!(&mut out, "- finished: `{}`", manifest.execution.finished_at).unwrap();
     if let Some(spawn_error) = &manifest.execution.spawn_error {
@@ -59,18 +87,8 @@ pub fn render_manifest_markdown(manifest: &PacketManifest) -> String {
             git.ref_name.as_deref().unwrap_or("n/a")
         )
         .unwrap();
-        writeln!(
-            &mut out,
-            "- dirty: `{}`",
-            git.is_dirty
-        )
-        .unwrap();
-        writeln!(
-            &mut out,
-            "- changed paths: `{}`",
-            git.changed_paths.len()
-        )
-        .unwrap();
+        writeln!(&mut out, "- dirty: `{}`", git.is_dirty).unwrap();
+        writeln!(&mut out, "- changed paths: `{}`", git.changed_paths.len()).unwrap();
         writeln!(
             &mut out,
             "- untracked paths: `{}`",
@@ -173,10 +191,28 @@ pub fn render_receipt_markdown(receipt: &ReplayReceipt) -> String {
     writeln!(&mut out, "- Packet: `{}`", receipt.packet_id).unwrap();
     writeln!(&mut out, "- Replayed at: `{}`", receipt.replayed_at).unwrap();
     writeln!(&mut out, "- Workdir: `{}`", receipt.workdir).unwrap();
-    writeln!(&mut out, "- Status: `{}`", display_replay_status(&receipt.status)).unwrap();
-    writeln!(&mut out, "- Recorded exit code: `{}`", format_option_i32(receipt.recorded_exit_code)).unwrap();
-    writeln!(&mut out, "- Observed exit code: `{}`", format_option_i32(receipt.observed_exit_code)).unwrap();
+    writeln!(
+        &mut out,
+        "- Status: `{}`",
+        display_replay_status(&receipt.status)
+    )
+    .unwrap();
+    writeln!(
+        &mut out,
+        "- Recorded exit code: `{}`",
+        format_option_i32(receipt.recorded_exit_code)
+    )
+    .unwrap();
+    writeln!(
+        &mut out,
+        "- Observed exit code: `{}`",
+        format_option_i32(receipt.observed_exit_code)
+    )
+    .unwrap();
     writeln!(&mut out, "- Matched: `{}`", receipt.matched).unwrap();
+    if let Some(matched_outputs) = receipt.matched_outputs {
+        writeln!(&mut out, "- Matched outputs: `{}`", matched_outputs).unwrap();
+    }
     writeln!(&mut out).unwrap();
 
     writeln!(&mut out, "## Command").unwrap();
@@ -199,6 +235,35 @@ pub fn render_receipt_markdown(receipt: &ReplayReceipt) -> String {
                 drift.observed.as_deref().unwrap_or("n/a")
             )
             .unwrap();
+        }
+        writeln!(&mut out).unwrap();
+    }
+
+    if let Some(env_cls) = &receipt.env_classification {
+        writeln!(&mut out, "## Environment classification").unwrap();
+        writeln!(&mut out).unwrap();
+        writeln!(&mut out, "- Restored: `{}` keys", env_cls.restored.len()).unwrap();
+        if !env_cls.restored.is_empty() {
+            for key in &env_cls.restored {
+                writeln!(&mut out, "  - `{}`", key).unwrap();
+            }
+        }
+        writeln!(
+            &mut out,
+            "- Overridden: `{}` keys",
+            env_cls.overridden.len()
+        )
+        .unwrap();
+        if !env_cls.overridden.is_empty() {
+            for key in &env_cls.overridden {
+                writeln!(&mut out, "  - `{}`", key).unwrap();
+            }
+        }
+        writeln!(&mut out, "- Inherited: `{}` keys", env_cls.inherited.len()).unwrap();
+        if !env_cls.inherited.is_empty() {
+            for key in &env_cls.inherited {
+                writeln!(&mut out, "  - `{}`", key).unwrap();
+            }
         }
         writeln!(&mut out).unwrap();
     }
@@ -307,6 +372,8 @@ mod tests {
                 signal: None,
                 success: true,
                 spawn_error: None,
+                stdout_sha256: None,
+                stderr_sha256: None,
             },
             EnvironmentRecord {
                 platform: PlatformFingerprint {

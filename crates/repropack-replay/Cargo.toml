@@ -12,3 +12,7 @@ repropack-git = { path = "../repropack-git" }
 repropack-model = { path = "../repropack-model" }
 repropack-pack = { path = "../repropack-pack" }
 repropack-render = { path = "../repropack-render" }
+
+[dev-dependencies]
+proptest.workspace = true
+tempfile.workspace = true

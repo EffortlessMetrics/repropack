@@ -15,3 +15,6 @@ repropack-model = { path = "../repropack-model" }
 repropack-pack = { path = "../repropack-pack" }
 repropack-render = { path = "../repropack-render" }
 walkdir.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
