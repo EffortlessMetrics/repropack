@@ -1,0 +1,209 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/repropack/manifest-v1.schema.json",
+  "title": "ReproPack Manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "packet_id",
+    "created_at",
+    "capture_level",
+    "replay_fidelity",
+    "replay_policy",
+    "command",
+    "execution",
+    "environment",
+    "inputs",
+    "outputs",
+    "packet_files",
+    "omissions",
+    "notes"
+  ],
+  "properties": {
+    "schema_version": { "const": "repropack.manifest.v1" },
+    "packet_id": { "type": "string" },
+    "packet_name": { "type": ["string", "null"] },
+    "created_at": { "type": "string" },
+    "capture_level": { "$ref": "#/$defs/captureLevel" },
+    "replay_fidelity": { "$ref": "#/$defs/replayFidelity" },
+    "replay_policy": { "$ref": "#/$defs/replayPolicy" },
+    "command": { "$ref": "#/$defs/command" },
+    "execution": { "$ref": "#/$defs/execution" },
+    "git": {
+      "anyOf": [
+        { "$ref": "#/$defs/gitState" },
+        { "type": "null" }
+      ]
+    },
+    "environment": { "$ref": "#/$defs/environment" },
+    "inputs": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/indexedFile" }
+    },
+    "outputs": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/indexedFile" }
+    },
+    "packet_files": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/packetFile" }
+    },
+    "omissions": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/omission" }
+    },
+    "notes": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  },
+  "$defs": {
+    "captureLevel": {
+      "type": "string",
+      "enum": ["metadata", "repo", "inputs"]
+    },
+    "replayFidelity": {
+      "type": "string",
+      "enum": ["exact", "approximate", "inspect_only"]
+    },
+    "replayPolicy": {
+      "type": "string",
+      "enum": ["safe", "confirm", "disabled"]
+    },
+    "command": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["program", "args", "display", "cwd"],
+      "properties": {
+        "program": { "type": "string" },
+        "args": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "display": { "type": "string" },
+        "cwd": { "type": "string" },
+        "cwd_relative_to_repo": { "type": ["string", "null"] }
+      }
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "started_at",
+        "finished_at",
+        "duration_ms",
+        "success"
+      ],
+      "properties": {
+        "started_at": { "type": "string" },
+        "finished_at": { "type": "string" },
+        "duration_ms": { "type": "integer", "minimum": 0 },
+        "exit_code": { "type": ["integer", "null"] },
+        "signal": { "type": ["integer", "null"] },
+        "success": { "type": "boolean" },
+        "spawn_error": { "type": ["string", "null"] }
+      }
+    },
+    "gitState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "commit_sha",
+        "ref_name",
+        "base",
+        "head",
+        "is_dirty",
+        "changed_paths",
+        "untracked_paths",
+        "bundle_path",
+        "diff_path",
+        "worktree_patch_path"
+      ],
+      "properties": {
+        "commit_sha": { "type": ["string", "null"] },
+        "ref_name": { "type": ["string", "null"] },
+        "base": { "type": ["string", "null"] },
+        "head": { "type": ["string", "null"] },
+        "is_dirty": { "type": "boolean" },
+        "changed_paths": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "untracked_paths": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "bundle_path": { "type": ["string", "null"] },
+        "diff_path": { "type": ["string", "null"] },
+        "worktree_patch_path": { "type": ["string", "null"] }
+      }
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["platform", "allowed_vars", "redacted_keys", "tool_versions"],
+      "properties": {
+        "platform": { "$ref": "#/$defs/platform" },
+        "allowed_vars": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "redacted_keys": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "tool_versions": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    },
+    "platform": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["family", "os", "arch"],
+      "properties": {
+        "family": { "type": "string" },
+        "os": { "type": "string" },
+        "arch": { "type": "string" }
+      }
+    },
+    "indexedFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["original_path", "packet_path", "sha256", "size_bytes"],
+      "properties": {
+        "original_path": { "type": "string" },
+        "restore_path": { "type": ["string", "null"] },
+        "packet_path": { "type": "string" },
+        "sha256": { "type": "string" },
+        "size_bytes": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "packetFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "relative_path", "sha256", "size_bytes"],
+      "properties": {
+        "role": {
+          "type": "string",
+          "enum": ["metadata", "git", "execution", "environment", "input", "output", "summary"]
+        },
+        "relative_path": { "type": "string" },
+        "sha256": { "type": "string" },
+        "size_bytes": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "omission": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "subject", "reason"],
+      "properties": {
+        "kind": { "type": "string" },
+        "subject": { "type": "string" },
+        "reason": { "type": "string" }
+      }
+    }
+  }
+}

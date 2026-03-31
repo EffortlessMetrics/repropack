@@ -1,0 +1,15 @@
+{
+  "schema_version": "repropack.receipt.v1",
+  "packet_id": "3f5a98a6-6f8d-47d8-bd8d-62e89d1f71a3",
+  "replayed_at": "2026-03-31T15:30:00Z",
+  "workdir": "/tmp/repropack-replay-3f5a98a6-6f8d-47d8-bd8d-62e89d1f71a3",
+  "command_display": "cargo test",
+  "status": "matched",
+  "recorded_exit_code": 101,
+  "observed_exit_code": 101,
+  "matched": true,
+  "drift": [],
+  "notes": [],
+  "stdout_path": ".repropack-replay/stdout.log",
+  "stderr_path": ".repropack-replay/stderr.log"
+}

@@ -1,0 +1,14 @@
+[package]
+name = "repropack-replay"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+serde_json.workspace = true
+repropack-git = { path = "../repropack-git" }
+repropack-model = { path = "../repropack-model" }
+repropack-pack = { path = "../repropack-pack" }
+repropack-render = { path = "../repropack-render" }

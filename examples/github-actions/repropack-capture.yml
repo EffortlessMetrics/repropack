@@ -1,0 +1,33 @@
+name: repropack-capture-example
+
+on:
+  workflow_dispatch:
+
+jobs:
+  red-build-packet:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Build repropack
+        run: cargo build --release -p repropack-cli
+
+      - name: Capture packet
+        run: |
+          ./target/release/repropack capture \
+            --name ci-red \
+            --git-bundle auto \
+            --format rpk \
+            -- cargo test
+        continue-on-error: true
+
+      - name: Upload packet
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: repropack-${{ github.run_id }}
+          path: "*.rpk"

@@ -1,0 +1,22 @@
+[package]
+name = "repropack-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "repropack"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+serde_json.workspace = true
+repropack-capture = { path = "../repropack-capture" }
+repropack-git = { path = "../repropack-git" }
+repropack-model = { path = "../repropack-model" }
+repropack-pack = { path = "../repropack-pack" }
+repropack-replay = { path = "../repropack-replay" }
+repropack-render = { path = "../repropack-render" }
+walkdir.workspace = true
