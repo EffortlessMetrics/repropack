@@ -7,3 +7,7 @@ publish.workspace = true
 
 [dependencies]
 repropack-model = { path = "../repropack-model" }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+proptest.workspace = true

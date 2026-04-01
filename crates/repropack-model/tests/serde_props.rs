@@ -378,6 +378,7 @@ fn arb_packet_manifest() -> impl Strategy<Value = PacketManifest> {
             packet_files,
             omissions,
             notes,
+            redaction_report_path: None,
         },
     )
 }
@@ -430,6 +431,7 @@ fn arb_replay_receipt() -> impl Strategy<Value = ReplayReceipt> {
             notes,
             stdout_path,
             stderr_path,
+            env_excluded_keys: None,
         },
     )
 }

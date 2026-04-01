@@ -106,7 +106,7 @@ pub fn capture_git_state(
                 .or_else(|| commit_sha.clone())
                 .unwrap_or_else(|| "HEAD".to_string());
 
-            match git_status(
+            let primary_result = git_status(
                 &repo_root,
                 [
                     "bundle",
@@ -114,16 +114,31 @@ pub fn capture_git_state(
                     bundle_target_string.as_str(),
                     bundle_ref.as_str(),
                 ],
-            ) {
+            );
+
+            match primary_result {
                 Ok(_) => {
                     bundle_path = Some("git/repo.bundle".to_string());
                 }
-                Err(err) => {
-                    omissions.push(Omission {
-                        kind: "bundle".to_string(),
-                        subject: bundle_target.display().to_string(),
-                        reason: format!("bundle capture failed: {err}"),
-                    });
+                Err(primary_err) => {
+                    // Fallback: retry with --all (handles root commits where <sha> alone fails)
+                    match git_status(
+                        &repo_root,
+                        ["bundle", "create", bundle_target_string.as_str(), "--all"],
+                    ) {
+                        Ok(_) => {
+                            bundle_path = Some("git/repo.bundle".to_string());
+                        }
+                        Err(fallback_err) => {
+                            omissions.push(Omission {
+                                kind: "bundle".to_string(),
+                                subject: bundle_target.display().to_string(),
+                                reason: format!(
+                                    "bundle capture failed: {primary_err}; fallback --all also failed: {fallback_err}"
+                                ),
+                            });
+                        }
+                    }
                 }
             }
         }
@@ -194,29 +209,57 @@ pub struct GitSnapshotOutcome {
 /// paths, untracked paths, optional worktree patch).
 ///
 /// `label` is typically `"pre"` or `"post"` and controls the patch filename.
+///
+/// When `exclude_paths` is non-empty, pathspec exclusions (`-- ':!<path>'`)
+/// are appended to `git status`, `git diff`, and `git ls-files` commands so
+/// that the listed paths do not appear in the snapshot.
 pub fn capture_git_snapshot(
     repo_root: &Path,
     out_dir: &Path,
     label: &str,
+    exclude_paths: &[&str],
 ) -> Result<GitSnapshotOutcome> {
     fs::create_dir_all(out_dir).with_context(|| format!("creating {}", out_dir.display()))?;
 
     let commit_sha = git_output(repo_root, ["rev-parse", "HEAD"]).ok();
 
-    let porcelain = git_output(repo_root, ["status", "--porcelain"]).unwrap_or_default();
+    // Build pathspec exclusion args: ["--", ":!path1", ":!path2", ...]
+    let pathspec_args: Vec<String> = if exclude_paths.is_empty() {
+        Vec::new()
+    } else {
+        let mut args = vec!["--".to_string()];
+        for path in exclude_paths {
+            args.push(format!(":!{path}"));
+        }
+        args
+    };
+
+    let porcelain = {
+        let mut args: Vec<&str> = vec!["status", "--porcelain"];
+        let pathspec_refs: Vec<&str> = pathspec_args.iter().map(|s| s.as_str()).collect();
+        args.extend_from_slice(&pathspec_refs);
+        git_output_dynamic(repo_root, &args).unwrap_or_default()
+    };
     let is_dirty = !porcelain.trim().is_empty();
 
     // Changed paths: tracked files with modifications relative to HEAD.
     let changed_paths = {
-        let mut paths = git_lines(repo_root, ["diff", "--name-only", "HEAD"]).unwrap_or_default();
+        let mut args: Vec<&str> = vec!["diff", "--name-only", "HEAD"];
+        let pathspec_refs: Vec<&str> = pathspec_args.iter().map(|s| s.as_str()).collect();
+        args.extend_from_slice(&pathspec_refs);
+        let mut paths = git_lines_dynamic(repo_root, &args).unwrap_or_default();
         paths.sort();
         paths.dedup();
         paths
     };
 
     // Untracked paths: files not tracked by git.
-    let untracked_paths =
-        git_lines(repo_root, ["ls-files", "--others", "--exclude-standard"]).unwrap_or_default();
+    let untracked_paths = {
+        let mut args: Vec<&str> = vec!["ls-files", "--others", "--exclude-standard"];
+        let pathspec_refs: Vec<&str> = pathspec_args.iter().map(|s| s.as_str()).collect();
+        args.extend_from_slice(&pathspec_refs);
+        git_lines_dynamic(repo_root, &args).unwrap_or_default()
+    };
 
     // Write worktree patch when dirty.
     let worktree_patch_path = if is_dirty {
@@ -345,4 +388,35 @@ fn git_status<const N: usize>(cwd: &Path, args: [&str; N]) -> Result<()> {
     } else {
         Err(anyhow!("git {:?} failed with status {}", args, status))
     }
+}
+
+fn git_output_dynamic(cwd: &Path, args: &[&str]) -> Result<String> {
+    let output = Command::new("git")
+        .args(args)
+        .current_dir(cwd)
+        .output()
+        .with_context(|| format!("running git {:?}", args))?;
+
+    if !output.status.success() {
+        return Err(anyhow!(
+            "git {:?} failed with status {}",
+            args,
+            output.status
+        ));
+    }
+
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+fn git_lines_dynamic(cwd: &Path, args: &[&str]) -> Result<Vec<String>> {
+    let stdout = git_output_dynamic(cwd, args)?;
+    let mut lines: Vec<String> = stdout
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(ToOwned::to_owned)
+        .collect();
+    lines.sort();
+    lines.dedup();
+    Ok(lines)
 }

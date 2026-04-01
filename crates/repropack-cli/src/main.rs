@@ -221,6 +221,7 @@ fn run() -> Result<i32> {
                     no_run: args.no_run,
                     force: args.force,
                     inherit_env: args.inherit_env,
+                    verbose: false,
                 },
             )?;
 

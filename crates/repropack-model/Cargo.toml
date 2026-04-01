@@ -7,9 +7,11 @@ publish.workspace = true
 
 [dependencies]
 jsonschema.workspace = true
+regex.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 time.workspace = true
+toml.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]

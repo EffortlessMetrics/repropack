@@ -6,8 +6,8 @@ use std::process::Command;
 use anyhow::{anyhow, Context, Result};
 use repropack_git::{apply_patch, checkout_commit, clone_bundle};
 use repropack_model::{
-    CaptureDelta, DriftItem, EnvClassification, IndexedFile, ReplayPolicy, ReplayReceipt,
-    ReplayStatus, Severity,
+    extract_semver, CaptureDelta, DriftItem, EnvClassification, IndexedFile, ReplayPolicy,
+    ReplayReceipt, ReplayStatus, Severity,
 };
 use repropack_pack::{materialize, sha256_bytes, sha256_file};
 use repropack_render::render_receipt_markdown;
@@ -19,6 +19,7 @@ pub struct ReplayOptions {
     pub no_run: bool,
     pub force: bool,
     pub inherit_env: bool,
+    pub verbose: bool,
 }
 
 pub struct ReplayResult {
@@ -134,6 +135,41 @@ pub fn compute_excluded_env_drift(
         }
     }
     drift
+}
+
+/// Collapse per-variable env-excluded drift into a single summary item.
+///
+/// Returns a summary `DriftItem` with subject `env_excluded_summary` and
+/// the full list of excluded key names for programmatic access.
+pub fn collapse_env_excluded_drift(
+    host_env: &BTreeMap<String, String>,
+    final_env: &BTreeMap<String, String>,
+) -> (DriftItem, Vec<String>) {
+    let excluded_keys: Vec<String> = host_env
+        .keys()
+        .filter(|k| !final_env.contains_key(*k))
+        .cloned()
+        .collect();
+    let count = excluded_keys.len();
+    let summary = DriftItem {
+        subject: "env_excluded_summary".to_string(),
+        expected: None,
+        observed: Some(count.to_string()),
+        severity: Severity::Info,
+    };
+    (summary, excluded_keys)
+}
+
+/// Compare two version strings by extracting semver components.
+///
+/// When both strings contain a semver pattern and those patterns are equal,
+/// returns true (no drift). Falls back to exact string comparison when no
+/// semver pattern is found in either string.
+pub fn versions_match(recorded: &str, observed: &str) -> bool {
+    match (extract_semver(recorded), extract_semver(observed)) {
+        (Some(r), Some(o)) => r == o,
+        _ => recorded == observed,
+    }
 }
 
 /// Compute evidence drift for stdout and stderr digests.
@@ -471,9 +507,10 @@ pub fn replay(packet: &Path, options: &ReplayOptions) -> Result<ReplayResult> {
             severity: Severity::Warning,
         });
     } else {
-        // Record excluded host vars as info drift
-        let excluded_drift = compute_excluded_env_drift(&host_env, &final_env);
-        receipt.drift.extend(excluded_drift);
+        // Record excluded host vars as collapsed summary drift
+        let (summary_drift, excluded_keys) = collapse_env_excluded_drift(&host_env, &final_env);
+        receipt.drift.push(summary_drift);
+        receipt.env_excluded_keys = Some(excluded_keys);
     }
 
     // ── Capture pre-run snapshot for delta comparison (Task 10.7) ───
@@ -483,9 +520,14 @@ pub fn replay(packet: &Path, options: &ReplayOptions) -> Result<ReplayResult> {
         .as_ref()
         .and_then(|g| g.capture_delta.as_ref())
         .and_then(|_| {
-            repropack_git::capture_git_snapshot(&workdir, &support_dir, "replay-pre")
-                .ok()
-                .map(|outcome| outcome.snapshot)
+            repropack_git::capture_git_snapshot(
+                &workdir,
+                &support_dir,
+                "replay-pre",
+                &[".repropack-replay"],
+            )
+            .ok()
+            .map(|outcome| outcome.snapshot)
         });
 
     // ── Execute command ─────────────────────────────────────────────
@@ -567,10 +609,14 @@ pub fn replay(packet: &Path, options: &ReplayOptions) -> Result<ReplayResult> {
 
     let mut delta_matched = true;
     if let Some(manifest_delta) = manifest.git.as_ref().and_then(|g| g.capture_delta.as_ref()) {
-        let post_snapshot =
-            repropack_git::capture_git_snapshot(&workdir, &support_dir, "replay-post")
-                .ok()
-                .map(|outcome| outcome.snapshot);
+        let post_snapshot = repropack_git::capture_git_snapshot(
+            &workdir,
+            &support_dir,
+            "replay-post",
+            &[".repropack-replay"],
+        )
+        .ok()
+        .map(|outcome| outcome.snapshot);
 
         if let (Some(pre), Some(post)) = (&pre_snapshot, &post_snapshot) {
             let replay_delta = repropack_git::compute_capture_delta(pre, post);
@@ -645,7 +691,7 @@ fn restore_inputs(
 fn compare_tool_versions(recorded: &BTreeMap<String, String>, receipt: &mut ReplayReceipt) {
     for (tool, expected) in recorded {
         if let Some(observed) = probe_version(tool) {
-            if &observed != expected {
+            if !versions_match(expected, &observed) {
                 receipt.drift.push(DriftItem {
                     subject: format!("tool_version:{tool}"),
                     expected: Some(expected.clone()),
@@ -907,5 +953,75 @@ mod tests {
         assert_eq!(drift.len(), 1);
         assert_eq!(drift[0].subject, "env_excluded:SECRET");
         assert!(matches!(drift[0].severity, Severity::Info));
+    }
+
+    #[test]
+    fn collapse_env_excluded_drift_summary() {
+        let mut host = BTreeMap::new();
+        host.insert("SECRET".to_string(), "val".to_string());
+        host.insert("HOME".to_string(), "/home/user".to_string());
+        host.insert("CI".to_string(), "true".to_string());
+
+        let mut final_env = BTreeMap::new();
+        final_env.insert("CI".to_string(), "true".to_string());
+
+        let (summary, keys) = collapse_env_excluded_drift(&host, &final_env);
+        assert_eq!(summary.subject, "env_excluded_summary");
+        assert_eq!(summary.observed, Some("2".to_string()));
+        assert!(matches!(summary.severity, Severity::Info));
+        assert_eq!(keys.len(), 2);
+        assert!(keys.contains(&"SECRET".to_string()));
+        assert!(keys.contains(&"HOME".to_string()));
+    }
+
+    #[test]
+    fn collapse_env_excluded_drift_none_excluded() {
+        let mut host = BTreeMap::new();
+        host.insert("CI".to_string(), "true".to_string());
+
+        let mut final_env = BTreeMap::new();
+        final_env.insert("CI".to_string(), "true".to_string());
+
+        let (summary, keys) = collapse_env_excluded_drift(&host, &final_env);
+        assert_eq!(summary.observed, Some("0".to_string()));
+        assert!(keys.is_empty());
+    }
+
+    #[test]
+    fn versions_match_same_semver_different_prefix() {
+        assert!(versions_match(
+            "rustc 1.78.0 (9b00956e5 2024-04-29)",
+            "rustc 1.78.0 (abc123 2024-05-01)"
+        ));
+    }
+
+    #[test]
+    fn versions_match_different_semver() {
+        assert!(!versions_match(
+            "rustc 1.78.0 (9b00956e5 2024-04-29)",
+            "rustc 1.79.0 (def456 2024-06-01)"
+        ));
+    }
+
+    #[test]
+    fn versions_match_no_semver_exact() {
+        assert!(versions_match("some-tool v2", "some-tool v2"));
+    }
+
+    #[test]
+    fn versions_match_no_semver_different() {
+        assert!(!versions_match("some-tool v2", "some-tool v3"));
+    }
+
+    #[test]
+    fn versions_match_bare_semver() {
+        assert!(versions_match("1.2.3", "1.2.3"));
+        assert!(!versions_match("1.2.3", "1.2.4"));
+    }
+
+    #[test]
+    fn replay_options_default_verbose_false() {
+        let opts = ReplayOptions::default();
+        assert!(!opts.verbose);
     }
 }

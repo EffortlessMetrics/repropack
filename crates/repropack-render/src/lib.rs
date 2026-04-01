@@ -1,6 +1,8 @@
 use std::fmt::Write;
 
-use repropack_model::{Omission, PacketManifest, ReplayReceipt, ReplayStatus};
+use repropack_model::{
+    DoctorReadiness, DoctorReport, DriftItem, Omission, PacketManifest, ReplayReceipt, ReplayStatus,
+};
 
 pub fn render_manifest_markdown(manifest: &PacketManifest) -> String {
     let mut out = String::new();
@@ -226,15 +228,375 @@ pub fn render_receipt_markdown(receipt: &ReplayReceipt) -> String {
         writeln!(&mut out, "## Drift").unwrap();
         writeln!(&mut out).unwrap();
         for drift in &receipt.drift {
+            if drift.subject == "env_excluded_summary" {
+                let count = drift.observed.as_deref().unwrap_or("0");
+                writeln!(
+                    &mut out,
+                    "- [{}] {} host environment variables excluded",
+                    display_severity(&drift.severity),
+                    count
+                )
+                .unwrap();
+            } else {
+                writeln!(
+                    &mut out,
+                    "- [{}] {} | expected=`{}` observed=`{}`",
+                    display_severity(&drift.severity),
+                    drift.subject,
+                    drift.expected.as_deref().unwrap_or("n/a"),
+                    drift.observed.as_deref().unwrap_or("n/a")
+                )
+                .unwrap();
+            }
+        }
+        writeln!(&mut out).unwrap();
+    }
+
+    if let Some(env_cls) = &receipt.env_classification {
+        writeln!(&mut out, "## Environment classification").unwrap();
+        writeln!(&mut out).unwrap();
+        writeln!(&mut out, "- Restored: `{}` keys", env_cls.restored.len()).unwrap();
+        if !env_cls.restored.is_empty() {
+            for key in &env_cls.restored {
+                writeln!(&mut out, "  - `{}`", key).unwrap();
+            }
+        }
+        writeln!(
+            &mut out,
+            "- Overridden: `{}` keys",
+            env_cls.overridden.len()
+        )
+        .unwrap();
+        if !env_cls.overridden.is_empty() {
+            for key in &env_cls.overridden {
+                writeln!(&mut out, "  - `{}`", key).unwrap();
+            }
+        }
+        writeln!(&mut out, "- Inherited: `{}` keys", env_cls.inherited.len()).unwrap();
+        if !env_cls.inherited.is_empty() {
+            for key in &env_cls.inherited {
+                writeln!(&mut out, "  - `{}`", key).unwrap();
+            }
+        }
+        writeln!(&mut out).unwrap();
+    }
+
+    if !receipt.notes.is_empty() {
+        writeln!(&mut out, "## Notes").unwrap();
+        writeln!(&mut out).unwrap();
+        for note in &receipt.notes {
+            writeln!(&mut out, "- {}", note).unwrap();
+        }
+    }
+
+    out
+}
+
+/// Render a `DoctorReport` as human-readable text.
+pub fn render_doctor_text(report: &DoctorReport) -> String {
+    let mut out = String::new();
+
+    // Readiness status
+    let readiness = match report.readiness {
+        DoctorReadiness::Ready => "ready",
+        DoctorReadiness::Degraded => "degraded",
+        DoctorReadiness::Blocked => "blocked",
+    };
+    writeln!(&mut out, "Readiness: {}", readiness).unwrap();
+    writeln!(&mut out).unwrap();
+
+    // Omission groups
+    if !report.omissions_by_kind.is_empty() {
+        writeln!(&mut out, "Omissions:").unwrap();
+        for (kind, omissions) in &report.omissions_by_kind {
+            writeln!(&mut out, "  {} ({})", kind, omissions.len()).unwrap();
+            for omission in omissions {
+                writeln!(&mut out, "    - {}: {}", omission.subject, omission.reason).unwrap();
+            }
+        }
+        writeln!(&mut out).unwrap();
+    }
+
+    // Redacted env keys
+    if !report.redacted_env_keys.is_empty() {
+        writeln!(&mut out, "Redacted environment keys:").unwrap();
+        for key in &report.redacted_env_keys {
+            writeln!(&mut out, "  - {}", key).unwrap();
+        }
+        writeln!(&mut out).unwrap();
+    }
+
+    // Tool versions
+    if !report.tool_versions.is_empty() {
+        writeln!(&mut out, "Tool versions:").unwrap();
+        for (tool, version) in &report.tool_versions {
+            let missing_marker = if report.missing_tools.contains(tool) {
+                " [MISSING]"
+            } else {
+                ""
+            };
+            writeln!(&mut out, "  - {}: {}{}", tool, version, missing_marker).unwrap();
+        }
+        writeln!(&mut out).unwrap();
+    }
+
+    // Flag missing tools not already listed in tool_versions
+    let extra_missing: Vec<_> = report
+        .missing_tools
+        .iter()
+        .filter(|t| !report.tool_versions.contains_key(t.as_str()))
+        .collect();
+    if !extra_missing.is_empty() {
+        writeln!(&mut out, "Missing tools:").unwrap();
+        for tool in extra_missing {
+            writeln!(&mut out, "  - {}", tool).unwrap();
+        }
+        writeln!(&mut out).unwrap();
+    }
+
+    // Redaction summary
+    if let Some(summary) = &report.redaction_summary {
+        writeln!(&mut out, "Redaction summary:").unwrap();
+        writeln!(&mut out, "  Replaced values: {}", summary.replaced_values).unwrap();
+        writeln!(&mut out, "  Removed files: {}", summary.removed_files).unwrap();
+        if report.has_redaction_report {
             writeln!(
                 &mut out,
-                "- [{}] {} | expected=`{}` observed=`{}`",
-                display_severity(&drift.severity),
-                drift.subject,
-                drift.expected.as_deref().unwrap_or("n/a"),
-                drift.observed.as_deref().unwrap_or("n/a")
+                "  This packet was scrubbed and is not replayable."
             )
             .unwrap();
+        }
+        writeln!(&mut out).unwrap();
+    } else if report.has_redaction_report {
+        writeln!(&mut out, "This packet was scrubbed and is not replayable.").unwrap();
+        writeln!(&mut out).unwrap();
+    }
+
+    // Notes
+    if !report.notes.is_empty() {
+        writeln!(&mut out, "Notes:").unwrap();
+        for note in &report.notes {
+            writeln!(&mut out, "  - {}", note).unwrap();
+        }
+    }
+
+    out
+}
+
+/// Render a `DoctorReport` as JSON.
+pub fn render_doctor_json(report: &DoctorReport) -> String {
+    serde_json::to_string_pretty(report).unwrap_or_else(|e| format!("{{\"error\": \"{}\"}}", e))
+}
+
+/// Render human-readable explanations for each `DriftItem` in a receipt.
+pub fn render_explain_output(receipt: &ReplayReceipt) -> String {
+    let mut out = String::new();
+
+    writeln!(
+        &mut out,
+        "Replay explanation (status: {})",
+        display_replay_status(&receipt.status)
+    )
+    .unwrap();
+    writeln!(&mut out).unwrap();
+
+    if receipt.drift.is_empty() {
+        writeln!(&mut out, "No drift items recorded.").unwrap();
+        return out;
+    }
+
+    for (i, drift) in receipt.drift.iter().enumerate() {
+        write!(&mut out, "{}. ", i + 1).unwrap();
+        render_drift_explanation(&mut out, drift);
+    }
+
+    out
+}
+
+fn render_drift_explanation(out: &mut String, drift: &DriftItem) {
+    let subject = drift.subject.as_str();
+    let expected = drift.expected.as_deref().unwrap_or("n/a");
+    let observed = drift.observed.as_deref().unwrap_or("n/a");
+
+    if subject == "stdout_digest" || subject == "stderr_digest" {
+        let stream = if subject == "stdout_digest" {
+            "stdout"
+        } else {
+            "stderr"
+        };
+        writeln!(out, "Command produced different {} output", stream).unwrap();
+        writeln!(out, "   expected digest: {}", expected).unwrap();
+        writeln!(out, "   observed digest: {}", observed).unwrap();
+    } else if let Some(path) = subject.strip_prefix("output_digest:") {
+        writeln!(out, "Output file changed: {}", path).unwrap();
+        writeln!(out, "   expected digest: {}", expected).unwrap();
+        writeln!(out, "   observed digest: {}", observed).unwrap();
+    } else if let Some(path) = subject.strip_prefix("output_missing:") {
+        writeln!(out, "Expected output file not found: {}", path).unwrap();
+    } else if subject == "capture_delta" {
+        writeln!(out, "Repository side effects differ").unwrap();
+        writeln!(out, "   expected: {}", expected).unwrap();
+        writeln!(out, "   observed: {}", observed).unwrap();
+    } else if let Some(tool) = subject.strip_prefix("tool_version:") {
+        writeln!(out, "Tool version mismatch: {}", tool).unwrap();
+        writeln!(out, "   expected: {}", expected).unwrap();
+        writeln!(out, "   observed: {}", observed).unwrap();
+    } else if subject == "env_excluded_summary" {
+        writeln!(out, "{} host environment variables excluded", observed).unwrap();
+    } else {
+        writeln!(
+            out,
+            "[{}] {} | expected={} observed={}",
+            display_severity(&drift.severity),
+            subject,
+            expected,
+            observed
+        )
+        .unwrap();
+    }
+}
+
+/// Render a GitHub Actions job summary for a packet (and optional receipt).
+pub fn render_gh_summary(manifest: &PacketManifest, receipt: Option<&ReplayReceipt>) -> String {
+    let mut out = String::new();
+
+    writeln!(&mut out, "## ReproPack Summary").unwrap();
+    writeln!(&mut out).unwrap();
+
+    // Packet name or ID
+    if let Some(name) = &manifest.packet_name {
+        writeln!(&mut out, "**Packet:** {}", name).unwrap();
+    } else {
+        writeln!(&mut out, "**Packet:** `{}`", manifest.packet_id).unwrap();
+    }
+
+    // Commit SHA
+    if let Some(git) = &manifest.git {
+        if let Some(sha) = &git.commit_sha {
+            writeln!(&mut out, "**Commit:** `{}`", sha).unwrap();
+        }
+    }
+
+    // Command
+    writeln!(&mut out, "**Command:** `{}`", manifest.command.display).unwrap();
+
+    // Exit code
+    writeln!(
+        &mut out,
+        "**Exit code:** `{}`",
+        format_option_i32(manifest.execution.exit_code)
+    )
+    .unwrap();
+
+    // Replay fidelity
+    writeln!(
+        &mut out,
+        "**Replay fidelity:** `{}`",
+        display_replay_fidelity(manifest)
+    )
+    .unwrap();
+
+    // Omission count
+    writeln!(&mut out, "**Omissions:** {}", manifest.omissions.len()).unwrap();
+
+    // Receipt info
+    if let Some(receipt) = receipt {
+        writeln!(&mut out).unwrap();
+        writeln!(&mut out, "### Replay Results").unwrap();
+        writeln!(&mut out).unwrap();
+        writeln!(
+            &mut out,
+            "**Status:** `{}`",
+            display_replay_status(&receipt.status)
+        )
+        .unwrap();
+        writeln!(&mut out, "**Matched:** `{}`", receipt.matched).unwrap();
+        writeln!(&mut out, "**Drift items:** {}", receipt.drift.len()).unwrap();
+    }
+
+    out
+}
+
+/// Render a receipt as Markdown, with optional verbose mode for env-excluded details.
+pub fn render_receipt_markdown_verbose(receipt: &ReplayReceipt, verbose: bool) -> String {
+    let mut out = String::new();
+
+    writeln!(&mut out, "# ReproPack replay receipt").unwrap();
+    writeln!(&mut out).unwrap();
+    writeln!(&mut out, "- Packet: `{}`", receipt.packet_id).unwrap();
+    writeln!(&mut out, "- Replayed at: `{}`", receipt.replayed_at).unwrap();
+    writeln!(&mut out, "- Workdir: `{}`", receipt.workdir).unwrap();
+    writeln!(
+        &mut out,
+        "- Status: `{}`",
+        display_replay_status(&receipt.status)
+    )
+    .unwrap();
+    writeln!(
+        &mut out,
+        "- Recorded exit code: `{}`",
+        format_option_i32(receipt.recorded_exit_code)
+    )
+    .unwrap();
+    writeln!(
+        &mut out,
+        "- Observed exit code: `{}`",
+        format_option_i32(receipt.observed_exit_code)
+    )
+    .unwrap();
+    writeln!(&mut out, "- Matched: `{}`", receipt.matched).unwrap();
+    if let Some(matched_outputs) = receipt.matched_outputs {
+        writeln!(&mut out, "- Matched outputs: `{}`", matched_outputs).unwrap();
+    }
+    writeln!(&mut out).unwrap();
+
+    writeln!(&mut out, "## Command").unwrap();
+    writeln!(&mut out).unwrap();
+    writeln!(&mut out, "```text").unwrap();
+    writeln!(&mut out, "{}", receipt.command_display).unwrap();
+    writeln!(&mut out, "```").unwrap();
+    writeln!(&mut out).unwrap();
+
+    if !receipt.drift.is_empty() {
+        writeln!(&mut out, "## Drift").unwrap();
+        writeln!(&mut out).unwrap();
+        for drift in &receipt.drift {
+            if drift.subject == "env_excluded_summary" {
+                let count = drift.observed.as_deref().unwrap_or("0");
+                if verbose {
+                    // Expand full list from env_excluded_keys
+                    writeln!(
+                        &mut out,
+                        "- [{}] {} host environment variables excluded:",
+                        display_severity(&drift.severity),
+                        count
+                    )
+                    .unwrap();
+                    if let Some(keys) = &receipt.env_excluded_keys {
+                        for key in keys {
+                            writeln!(&mut out, "  - `{}`", key).unwrap();
+                        }
+                    }
+                } else {
+                    writeln!(
+                        &mut out,
+                        "- [{}] {} host environment variables excluded",
+                        display_severity(&drift.severity),
+                        count
+                    )
+                    .unwrap();
+                }
+            } else {
+                writeln!(
+                    &mut out,
+                    "- [{}] {} | expected=`{}` observed=`{}`",
+                    display_severity(&drift.severity),
+                    drift.subject,
+                    drift.expected.as_deref().unwrap_or("n/a"),
+                    drift.observed.as_deref().unwrap_or("n/a")
+                )
+                .unwrap();
+            }
         }
         writeln!(&mut out).unwrap();
     }

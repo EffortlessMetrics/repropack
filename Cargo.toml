@@ -15,11 +15,17 @@ flate2 = "1"
 glob = "0.3"
 jsonschema = "0.29"
 proptest = "1"
+regex = "1"
+reqwest = { version = "0.12", default-features = false, features = [
+    "blocking",
+    "rustls-tls",
+] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
 tar = "0.4"
 tempfile = "3"
+toml = "0.8"
 time = { version = "0.3", features = [
     "formatting",
     "macros",
@@ -28,3 +34,4 @@ time = { version = "0.3", features = [
 ] }
 uuid = { version = "1", features = ["serde", "v4"] }
 walkdir = "2"
+zip = { version = "2", default-features = false, features = ["deflate"] }

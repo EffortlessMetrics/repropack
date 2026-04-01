@@ -85,6 +85,8 @@ pub struct PacketManifest {
     pub packet_files: Vec<PacketFileRef>,
     pub omissions: Vec<Omission>,
     pub notes: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub redaction_report_path: Option<String>,
 }
 
 impl PacketManifest {
@@ -111,6 +113,7 @@ impl PacketManifest {
             packet_files: Vec::new(),
             omissions: Vec::new(),
             notes: Vec::new(),
+            redaction_report_path: None,
         }
     }
 
@@ -238,6 +241,8 @@ pub struct ReplayReceipt {
     pub notes: Vec<String>,
     pub stdout_path: Option<String>,
     pub stderr_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub env_excluded_keys: Option<Vec<String>>,
 }
 
 impl ReplayReceipt {
@@ -262,6 +267,7 @@ impl ReplayReceipt {
             notes: Vec::new(),
             stdout_path: None,
             stderr_path: None,
+            env_excluded_keys: None,
         }
     }
 
@@ -315,6 +321,177 @@ pub struct IntegrityEntry {
     pub size_bytes: u64,
 }
 
+// ── v0.3 new types ──────────────────────────────────────────────────
+
+/// A single redaction entry describing what was redacted and why.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RedactionEntry {
+    pub field_or_path: String,
+    pub action: RedactionAction,
+    pub reason: String,
+}
+
+/// The kind of redaction applied.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum RedactionAction {
+    Replaced,
+    Removed,
+    Cleared,
+}
+
+/// Doctor report assessing packet completeness and replay-worthiness.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DoctorReport {
+    pub readiness: DoctorReadiness,
+    pub omissions_by_kind: BTreeMap<String, Vec<Omission>>,
+    pub redacted_env_keys: Vec<String>,
+    pub tool_versions: BTreeMap<String, String>,
+    pub missing_tools: Vec<String>,
+    pub has_redaction_report: bool,
+    pub redaction_summary: Option<RedactionSummary>,
+    pub notes: Vec<String>,
+}
+
+/// Overall readiness verdict from the doctor check.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DoctorReadiness {
+    Ready,
+    Degraded,
+    Blocked,
+}
+
+/// Summary counts for redaction operations.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RedactionSummary {
+    pub replaced_values: usize,
+    pub removed_files: usize,
+}
+
+// ── v0.3 configuration types ────────────────────────────────────────
+
+/// Parsed `.repropack.toml` configuration.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+pub struct RepropackConfig {
+    #[serde(default)]
+    pub env_allow: Vec<String>,
+    #[serde(default)]
+    pub env_deny: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_file_size: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_packet_size: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub format: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub git_bundle: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub replay_policy: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_profile: Option<String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub profile: BTreeMap<String, ProfileConfig>,
+}
+
+/// A named profile section within `.repropack.toml`.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+pub struct ProfileConfig {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub env_allow: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub env_deny: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_file_size: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_packet_size: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub format: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub git_bundle: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub replay_policy: Option<String>,
+}
+
+/// Fully resolved configuration with no Option fields.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ResolvedConfig {
+    pub env_allow: Vec<String>,
+    pub env_deny: Vec<String>,
+    pub max_file_size: u64,
+    pub max_packet_size: u64,
+    pub format: String,
+    pub git_bundle: String,
+    pub replay_policy: String,
+}
+
+impl RepropackConfig {
+    /// Resolve a config by merging a named profile over top-level defaults.
+    /// Profile values override top-level values; absent profile keys fall
+    /// back to top-level defaults.
+    pub fn resolve(&self, profile_name: Option<&str>) -> Result<ResolvedConfig, String> {
+        let profile = match profile_name {
+            Some(name) => {
+                let p = self
+                    .profile
+                    .get(name)
+                    .ok_or_else(|| format!("profile '{}' not found", name))?;
+                Some(p)
+            }
+            None => None,
+        };
+
+        let env_allow = match profile {
+            Some(p) if !p.env_allow.is_empty() => p.env_allow.clone(),
+            _ => self.env_allow.clone(),
+        };
+        let env_deny = match profile {
+            Some(p) if !p.env_deny.is_empty() => p.env_deny.clone(),
+            _ => self.env_deny.clone(),
+        };
+        let max_file_size = profile
+            .and_then(|p| p.max_file_size)
+            .or(self.max_file_size)
+            .unwrap_or(52_428_800);
+        let max_packet_size = profile
+            .and_then(|p| p.max_packet_size)
+            .or(self.max_packet_size)
+            .unwrap_or(524_288_000);
+        let format = profile
+            .and_then(|p| p.format.clone())
+            .or_else(|| self.format.clone())
+            .unwrap_or_else(|| "rpk".to_string());
+        let git_bundle = profile
+            .and_then(|p| p.git_bundle.clone())
+            .or_else(|| self.git_bundle.clone())
+            .unwrap_or_else(|| "auto".to_string());
+        let replay_policy = profile
+            .and_then(|p| p.replay_policy.clone())
+            .or_else(|| self.replay_policy.clone())
+            .unwrap_or_else(|| "safe".to_string());
+
+        Ok(ResolvedConfig {
+            env_allow,
+            env_deny,
+            max_file_size,
+            max_packet_size,
+            format,
+            git_bundle,
+            replay_policy,
+        })
+    }
+
+    /// Parse from a TOML string.
+    pub fn from_toml(toml_str: &str) -> Result<Self, String> {
+        toml::from_str(toml_str).map_err(|e| e.to_string())
+    }
+
+    /// Serialize to a TOML string.
+    pub fn to_toml(&self) -> Result<String, String> {
+        toml::to_string_pretty(self).map_err(|e| e.to_string())
+    }
+}
+
 /// Size cap configuration for capture.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SizeCaps {
@@ -329,6 +506,14 @@ impl Default for SizeCaps {
             max_packet_bytes: 500 * 1024 * 1024, // 500 MiB
         }
     }
+}
+
+/// Extract the semantic version component from a tool version string.
+/// E.g., "rustc 1.78.0 (9b00956e5 2024-04-29)" → "1.78.0"
+/// Returns None if no semver-like pattern is found.
+pub fn extract_semver(version_string: &str) -> Option<String> {
+    let re = regex::Regex::new(r"\b(\d+\.\d+\.\d+)\b").expect("valid regex");
+    re.find(version_string).map(|m| m.as_str().to_string())
 }
 
 pub fn utc_now_string() -> String {
@@ -382,5 +567,23 @@ mod tests {
         let json = serde_json::to_vec_pretty(&manifest).unwrap();
         let reparsed: PacketManifest = serde_json::from_slice(&json).unwrap();
         assert_eq!(reparsed.schema_version, MANIFEST_SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn extract_semver_from_rustc() {
+        assert_eq!(
+            extract_semver("rustc 1.78.0 (9b00956e5 2024-04-29)"),
+            Some("1.78.0".to_string()),
+        );
+    }
+
+    #[test]
+    fn extract_semver_bare() {
+        assert_eq!(extract_semver("3.12.4"), Some("3.12.4".to_string()));
+    }
+
+    #[test]
+    fn extract_semver_none_for_garbage() {
+        assert_eq!(extract_semver("no version here"), None);
     }
 }

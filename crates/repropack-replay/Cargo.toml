@@ -7,6 +7,7 @@ publish.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+regex.workspace = true
 serde_json.workspace = true
 repropack-git = { path = "../repropack-git" }
 repropack-model = { path = "../repropack-model" }

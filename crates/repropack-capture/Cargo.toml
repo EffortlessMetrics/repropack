@@ -10,6 +10,7 @@ anyhow.workspace = true
 glob.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
+time.workspace = true
 repropack-git = { path = "../repropack-git" }
 repropack-model = { path = "../repropack-model" }
 repropack-pack = { path = "../repropack-pack" }

@@ -13,7 +13,7 @@ use repropack_git::{
 use repropack_model::{
     CaptureLevel, CommandRecord, EnvironmentRecord, ExecutionRecord, IndexedFile, IntegrityEntry,
     Omission, PacketFileRef, PacketFileRole, PacketManifest, PlatformFingerprint, ReplayFidelity,
-    ReplayPolicy, SizeCaps,
+    ReplayPolicy, ResolvedConfig, SizeCaps,
 };
 use repropack_pack::{pack_dir, sha256_bytes, sha256_file};
 use repropack_render::{render_manifest_html, render_manifest_markdown};
@@ -55,6 +55,40 @@ impl Default for CaptureOptions {
             output_path: None,
             replay_policy: ReplayPolicy::Safe,
             size_caps: SizeCaps::default(),
+        }
+    }
+}
+
+impl CaptureOptions {
+    pub fn from_config(resolved: &ResolvedConfig) -> Self {
+        let format = match resolved.format.as_str() {
+            "dir" => PacketFormat::Directory,
+            _ => PacketFormat::Rpk,
+        };
+
+        let bundle_mode = match resolved.git_bundle.as_str() {
+            "always" => BundleMode::Always,
+            "never" => BundleMode::Never,
+            _ => BundleMode::Auto,
+        };
+
+        let replay_policy = match resolved.replay_policy.as_str() {
+            "confirm" => ReplayPolicy::Confirm,
+            "disabled" => ReplayPolicy::Disabled,
+            _ => ReplayPolicy::Safe,
+        };
+
+        Self {
+            env_allow: resolved.env_allow.clone(),
+            env_deny: resolved.env_deny.clone(),
+            size_caps: SizeCaps {
+                max_file_bytes: resolved.max_file_size,
+                max_packet_bytes: resolved.max_packet_size,
+            },
+            format,
+            bundle_mode,
+            replay_policy,
+            ..Default::default()
         }
     }
 }
@@ -132,8 +166,8 @@ pub fn capture(command: &[String], options: &CaptureOptions) -> Result<CaptureRe
         &options.env_allow,
         &options.env_deny,
     );
-    let mut manifest =
-        PacketManifest::new(options.name.clone(), command_record, execution, environment);
+    let packet_name = options.name.as_deref().map(slug);
+    let mut manifest = PacketManifest::new(packet_name, command_record, execution, environment);
     manifest.replay_policy = options.replay_policy.clone();
     manifest.capture_level = derive_capture_level(repo_root.as_ref(), options);
     manifest
@@ -166,7 +200,7 @@ pub fn capture(command: &[String], options: &CaptureOptions) -> Result<CaptureRe
         // the git state before command execution is the same as current state when
         // no concurrent modifications occur. The pre snapshot was conceptually taken
         // before the command ran.
-        let pre_snapshot_result = capture_git_snapshot(root, &git_out_dir, "pre");
+        let pre_snapshot_result = capture_git_snapshot(root, &git_out_dir, "pre", &[]);
         let pre_snapshot = match &pre_snapshot_result {
             Ok(outcome) => {
                 omissions.extend(outcome.omissions.clone());
@@ -196,7 +230,7 @@ pub fn capture(command: &[String], options: &CaptureOptions) -> Result<CaptureRe
         omissions.extend(git_out.omissions);
 
         // Task 9.1: Post-run git snapshot
-        let post_snapshot_result = capture_git_snapshot(root, &git_out_dir, "post");
+        let post_snapshot_result = capture_git_snapshot(root, &git_out_dir, "post", &[]);
         let post_snapshot = match &post_snapshot_result {
             Ok(outcome) => {
                 omissions.extend(outcome.omissions.clone());
@@ -299,14 +333,16 @@ pub fn capture(command: &[String], options: &CaptureOptions) -> Result<CaptureRe
     // Task 9.4: Generate integrity envelope after staging
     generate_integrity_envelope(stage_dir.path()).context("generating integrity.json")?;
 
-    let packet_path = options
-        .output_path
-        .clone()
-        .unwrap_or_else(|| default_output_path(&manifest, options.format));
-
-    if packet_path.exists() {
-        return Err(anyhow!("target already exists: {}", packet_path.display()));
-    }
+    let packet_path = if let Some(explicit) = &options.output_path {
+        // User explicitly chose this path — fail if it exists
+        if explicit.exists() {
+            return Err(anyhow!("target already exists: {}", explicit.display()));
+        }
+        explicit.clone()
+    } else {
+        // default_output_path handles dedup via numeric suffix
+        default_output_path(&manifest, options.format)
+    };
 
     let final_path = match options.format {
         PacketFormat::Rpk => {
@@ -727,12 +763,55 @@ fn role_for_path(relative: &Path) -> PacketFileRole {
 }
 
 fn default_output_path(manifest: &PacketManifest, format: PacketFormat) -> PathBuf {
-    let base = slug(manifest.packet_name.as_deref().unwrap_or("repropack"));
+    let base = if manifest.packet_name.is_some() {
+        // --name was provided: slugify it
+        slug(manifest.packet_name.as_deref().unwrap())
+    } else {
+        // Generate: repropack-<short-sha>-<YYYYMMDD-HHMMSS>
+        let short_sha = manifest
+            .git
+            .as_ref()
+            .and_then(|g| g.commit_sha.as_deref())
+            .map(|s| &s[..8.min(s.len())])
+            .unwrap_or("unknown");
+        let ts = compact_timestamp();
+        format!("repropack-{short_sha}-{ts}")
+    };
 
-    match format {
-        PacketFormat::Rpk => PathBuf::from(format!("{base}-{}.rpk", manifest.packet_id)),
-        PacketFormat::Directory => PathBuf::from(format!("{base}-{}.packet", manifest.packet_id)),
+    let ext = match format {
+        PacketFormat::Rpk => "rpk",
+        PacketFormat::Directory => "packet",
+    };
+
+    let candidate = PathBuf::from(format!("{base}.{ext}"));
+    if !candidate.exists() {
+        return candidate;
     }
+
+    // Append numeric suffix until we find a free name
+    for n in 1u32.. {
+        let suffixed = PathBuf::from(format!("{base}-{n}.{ext}"));
+        if !suffixed.exists() {
+            return suffixed;
+        }
+    }
+
+    // Unreachable in practice
+    candidate
+}
+
+/// Returns the current UTC time as a compact timestamp: `YYYYMMDD-HHMMSS`.
+fn compact_timestamp() -> String {
+    let now = time::OffsetDateTime::now_utc();
+    format!(
+        "{:04}{:02}{:02}-{:02}{:02}{:02}",
+        now.year(),
+        now.month() as u8,
+        now.day(),
+        now.hour(),
+        now.minute(),
+        now.second(),
+    )
 }
 
 fn copy_dir(source: &Path, target: &Path) -> Result<()> {
@@ -809,7 +888,9 @@ fn absolutize_glob(base: &Path, pattern: &str) -> String {
     }
 }
 
-fn slug(value: &str) -> String {
+/// Slugify a string: lowercase alphanumeric + hyphens only.
+/// No leading, trailing, or consecutive hyphens.
+pub fn slug(value: &str) -> String {
     let mut out = String::new();
     let mut last_dash = false;
 
