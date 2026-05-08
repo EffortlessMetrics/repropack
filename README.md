@@ -1,5 +1,9 @@
 # ReproPack
 
+[![CI](https://github.com/EffortlessMetrics/repropack/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/EffortlessMetrics/repropack/actions/workflows/ci.yml)
+[![Coverage](https://github.com/EffortlessMetrics/repropack/actions/workflows/coverage.yml/badge.svg?branch=main)](https://github.com/EffortlessMetrics/repropack/actions/workflows/coverage.yml)
+[![Codecov](https://codecov.io/gh/EffortlessMetrics/repropack/branch/main/graph/badge.svg)](https://codecov.io/gh/EffortlessMetrics/repropack)
+
 ReproPack is a **commit-aware failure packet generator** for ordinary repositories.
 
 It captures a repo predicate at a specific code state and emits a portable packet that another human, CI job, or agent can inspect and replay. The packet is narrower than full-system reproducibility and broader than a test-run artifact:
@@ -28,6 +32,8 @@ ReproPack is designed as a **contract-first CLI**:
 - omissions and redactions are first-class
 - Git is the repo substrate
 - GitHub artifacts are transport, not identity
+
+Codecov coverage is Rust execution-surface telemetry only; see [Coverage](docs/ci/coverage.md) for what the badge does and does not claim.
 
 ## What v0.1 does
 
